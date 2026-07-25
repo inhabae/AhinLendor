@@ -106,4 +106,9 @@ if(SPLENDOR_BUILD_PYBIND)
         SPLENDOR_BUILD_TYPE="$<CONFIG>"
         SPLENDOR_BUILD_OPTIMIZED=$<IF:$<CONFIG:Debug>,0,1>
     )
+
+    install(TARGETS splendor_native
+        LIBRARY DESTINATION .
+        RUNTIME DESTINATION .
+    )
 endif()

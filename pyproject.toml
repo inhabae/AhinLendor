@@ -1,0 +1,20 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "pybind11>=2.13"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "splendor-zero"
+version = "0.1.0"
+description = "Reusable Splendor engine, search, training, and Spendee bridge"
+requires-python = ">=3.12"
+dependencies = [
+  "numpy>=2,<3",
+  "torch>=2.5,<3",
+]
+
+[tool.scikit-build]
+wheel.packages = ["nn", "spendee"]
+wheel.exclude = ["nn/webapp.py"]
+cmake.build-type = "Release"
+cmake.args = ["-DSPLENDOR_BUILD_TEST_BINS=OFF", "-DSPLENDOR_BUILD_PYBIND=ON"]
+build-dir = "build/{wheel_tag}"

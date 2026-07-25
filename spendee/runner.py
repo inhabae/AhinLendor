@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import random
 import re
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -91,6 +94,9 @@ class SpendeeBridgeConfig:
     accept_user_suffix: str | None = None
     selectors: SpendeeSelectorConfig = field(default_factory=SpendeeSelectorConfig)
     artifact_dir: str = "nn_artifacts/spendee_bridge"
+    live_ingest_url: str | None = None
+    live_ingest_token: str | None = None
+    live_ingest_timeout_sec: float = 4.0
 
     @property
     def bridge_mode(self) -> Literal["play", "dry_run", "record_only"]:
@@ -155,6 +161,33 @@ class SpendeeBridgeRunner:
         self._webui_save_history: list[dict] = []
         self._webui_save_last_key: tuple[object, ...] | None = None
         self._webui_save_game_id: str | None = None
+        self._live_ingest_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ahinlendor-live")
+
+    def _push_live_save(self, payload: dict) -> None:
+        if not self.config.live_ingest_url or not self.config.live_ingest_token:
+            return
+        request = urllib.request.Request(
+            self.config.live_ingest_url,
+            data=json.dumps(payload, separators=(",", ":")).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {self.config.live_ingest_token}",
+                "Content-Type": "application/json",
+            },
+            method="PUT",
+        )
+        last_error: Exception | None = None
+        for _attempt in range(2):
+            try:
+                with urllib.request.urlopen(request, timeout=self.config.live_ingest_timeout_sec) as response:
+                    if 200 <= response.status < 300:
+                        return
+            except Exception as exc:
+                last_error = exc
+        if last_error is not None:
+            self.logger.write_json(
+                "live_ingest_error",
+                {"error": str(last_error), "url": self.config.live_ingest_url},
+            )
 
     def _player_index_for_seat(self, seat: str) -> int:
         return 0 if seat == "P0" else 1
@@ -339,6 +372,8 @@ class SpendeeBridgeRunner:
         self._webui_save_history.append(snapshot)
         self._webui_save_last_key = key
         self.logger.write_json("webui_save", payload)
+        if self.config.live_ingest_url and self.config.live_ingest_token:
+            self._live_ingest_executor.submit(self._push_live_save, payload)
 
     def _archive_webui_save(self, *, reason: str, observed: ObservedBoardState | None = None) -> Path | None:
         if self._webui_save_game_id is None:

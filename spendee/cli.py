@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 
 from .runner import SpendeeBridgeConfig, SpendeeBridgeRunner
 
@@ -92,6 +93,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--poll-interval-sec", type=float, default=0.5, help="Board polling interval")
     parser.add_argument("--stable-polls", type=int, default=2, help="Matching board snapshots required before acting")
     parser.add_argument("--artifact-dir", default="nn_artifacts/spendee_bridge", help="Directory for bridge logs/artifacts")
+    parser.add_argument(
+        "--live-ingest-url",
+        default=os.environ.get("AHINLENDOR_LIVE_INGEST_URL"),
+        help="AhinLendor live snapshot endpoint; defaults to AHINLENDOR_LIVE_INGEST_URL",
+    )
+    parser.add_argument(
+        "--live-ingest-token",
+        default=os.environ.get("AHINLENDOR_LIVE_INGEST_TOKEN"),
+        help="Bearer token for live ingestion; defaults to AHINLENDOR_LIVE_INGEST_TOKEN",
+    )
+    parser.add_argument(
+        "--live-ingest-timeout-sec",
+        type=float,
+        default=float(os.environ.get("AHINLENDOR_LIVE_INGEST_TIMEOUT_SECONDS", "4")),
+        help="Timeout for each remote live snapshot attempt",
+    )
     parser.add_argument(
         "--mode",
         choices=("play", "dry-run", "record-only"),
@@ -185,6 +202,9 @@ async def _run_async(args: argparse.Namespace) -> None:
         min_rating=(None if args.min_rating is None else int(args.min_rating)),
         accept_user_suffix=(None if args.accept_user is None else str(args.accept_user)),
         artifact_dir=str(args.artifact_dir),
+        live_ingest_url=(None if args.live_ingest_url is None else str(args.live_ingest_url)),
+        live_ingest_token=(None if args.live_ingest_token is None else str(args.live_ingest_token)),
+        live_ingest_timeout_sec=float(args.live_ingest_timeout_sec),
     )
     runner = SpendeeBridgeRunner(config)
     await runner.run()

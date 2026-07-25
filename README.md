@@ -1,96 +1,158 @@
-# Splendor AI Engine
-
-An AlphaZero-style AI for [Splendor](https://boardgamegeek.com/boardgame/148228/splendor) — built with PyTorch and trained entirely from self-play, with a custom C++ game engine, a React analysis UI, and a browser-automation bridge for playing live on [Spendee](https://spendee.mattle.online).
-
-<!-- INSERT: Hero screenshot of the web UI in Analysis mode -->
-
----
-
-## What's in here
-
-**C++ game engine** — Full Splendor rules (69-action space, 252-dim state vector) with pybind11 bindings for Python.
-
-**Neural network** — A masked policy-value net (PyTorch) that takes the encoded board state and outputs move probabilities + a win estimate. Trained end-to-end from self-play with no human data.
-
-**MCTS / IS-MCTS** — Two search modes implemented natively in C++. Standard MCTS re-determinizes hidden information per simulation. Information Set MCTS maintains a shared tree indexed by observable state, used for live play where the opponent's hand is unknown.
-
-**Self-play training loop** — AlphaZero-style cycle: generate games → train → evaluate → promote champion. Supports parallel workers, rolling replay buffers, and automatic champion promotion.
-
-**Web UI** — React + FastAPI app for playing against the engine, setting up positions manually, and running continuous IS-MCTS analysis on any position.
-
-<img width="1297" height="745" alt="Screenshot 2026-03-20 at 2 20 01 PM" src="https://github.com/user-attachments/assets/6510249e-7d30-434b-ae10-ad610c792654" />
+# AhinLendor
 
 
-**Spendee bridge** — A Playwright automation layer that reads Spendee's Meteor reactive state, tracks hidden information across turns, and submits moves via `clientAction()`.
+![AhinLendor Analysis UI](assets/page.png)
 
-<!-- INSERT: Screenshot or GIF of the bridge playing a live game -->
+An **AlphaZero-style AI for Splendor**, trained entirely through self-play.
 
----
+AhinLendor combines a native C++ game engine, a PyTorch policy-value network, and Monte Carlo Tree Search (MCTS) to learn the game without human data. It reached **Rank 1 on Spendee** and serves as the research engine behind the AhinLendor web application.
 
-## Tech stack
+![AhinLendor Analysis UI](assets/leaderboard.png)
 
-| | |
-|---|---|
-| Game engine | C++17, pybind11, CMake |
-| Neural network | PyTorch |
-| Search | Native C++ MCTS / IS-MCTS |
-| Web backend | FastAPI |
-| Web frontend | React 18, TypeScript, Vite |
-| Live play | Playwright |
 
----
 
-## Getting started
+# AlphaZero Architecture
 
-**Install dependencies:**
-```bash
-pip install -r requirements-nn.txt          # training + web UI
-pip install -r requirements-webui.txt       # FastAPI server
-pip install -r requirements-spendee.txt     # live bridge (optional)
+AhinLendor follows the standard AlphaZero training loop:
+
+```
+Self Play
+      ↓
+ Monte Carlo Tree Search
+      ↓
+Policy-Value Network
+      ↓
+ Training
+      ↓
+Stronger Model
+      ↺
 ```
 
-**Build the native extension:**
+The neural network predicts both:
+
+- **Policy** — probability distribution over legal moves
+- **Value** — estimated probability of winning
+
+During play, these predictions guide MCTS to produce stronger search than the network alone.
+
+
+# Engine Specifications
+
+When AhinLendor first reached Rank 1 on Spendee, it competed under a **5 minutes + 10 seconds per action** time control, performing approximately **70,000 MCTS simulations** per move.
+
+Later versions significantly improved search by combining:
+
+- **250,000 MCTS simulations**
+- **20,000 Bootstrap iterations**
+- **Batch inference of 64 leaf evaluations**
+
+Running on a **MacBook M2**, this version typically spent around **20 seconds per move**.
+
+# Key Design Decisions
+
+### 1. Reduced Action Space
+
+
+One of the first design challenges was defining the policy action space.
+
+Splendor naturally contains many combinations of gem collections, token returns, and card interactions. Treating every possibility as a separate action quickly becomes impractical. For comparison, Jonatan Simonsson's master's thesis *Creating an AI Opponent with Super-Human Performance for Splendor* uses **371 actions**.
+
+AhinLendor reduces the action space to only **69 actions** by:
+
+- returning gems one token at a time in a dedicated return phase;
+- limiting buy and reserve actions to cards currently visible on the board;
+- sharing fixed action slots across equivalent board positions.
+
+This preserves the complete game rules while making policy learning substantially easier.
+
+<p align="center">
+  <img src="assets/action-space.jpeg" width="900">
+</p>
+
+
+---
+
+### 2. Bootstrap MCTS
+
+While analyzing games against former Board Game Arena Rank 1 player **seed seed**, an interesting weakness emerged.
+
+In one position, AhinLendor chose to collect gems. However, the strongest move was to reserve an inexpensive green development card, unlocking an efficient path toward several powerful Tier 3 purchases.
+
+<p align="center">
+  <img src="assets/match.png" width="850">
+  <br>
+  <em>AhinLendor vs seed seed, AhinLendor to move.</em>
+</p>
+
+<p align="center">
+  <img src="assets/old-moves.png" width="850">
+  <br>
+  <em>AhinLendor thinks taking gems is better than reserving the crucial tier-1 card.</em>
+</p>
+
+The problem was not the search algorithm itself, but the interaction between the neural network and MCTS.
+
+Because MCTS naturally spends most of its simulations on moves that already appear promising, actions receiving poor initial evaluations from the neural network may receive very little exploration—even when deeper search would reveal them to be the strongest moves.
+
+To address this, I developed **Bootstrap MCTS**.
+
+Before standard MCTS begins, the search first performs a fixed number of simulations from **every legal move one ply ahead**. Only after this initial exploration does normal MCTS allocate simulations according to its search policy.
+
+This allows underestimated moves to demonstrate their strength before search becomes selective.
+
+After introducing Bootstrap MCTS, the engine correctly identified reserving the green card as the best move.
+
+<p align="center">
+  <img src="assets/new-moves.png" width="850">
+  <br>
+  <em>With bootstrap search (20K each), AhinLendor now correctly evaluates that reserving the tier-1 card is the best move.</em>
+</p>
+
+
+
+# Getting Started
+
+Install dependencies
+
+```bash
+pip install -r requirements-nn.txt
+pip install -r requirements-webui.txt
+pip install -r requirements-spendee.txt
+```
+
+Build the native engine
+
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
-cmake --build build --target splendor_native -j$(nproc)
+cmake --build build --target splendor_native
 ```
 
-**Smoke test:**
-```bash
-python -m nn.train --mode smoke --episodes 5 --mcts-sims 32
-```
+Run the web application
 
-**Run a training loop:**
 ```bash
-python -m nn.train --mode cycles \
-  --cycles 500 --episodes-per-cycle 5000 \
-  --mcts-sims 200 --model-res-blocks 5 \
-  --save-checkpoint-every-cycles 5 --auto-promote \
-  --collector-workers 4
-```
+cd webui
+npm install
+npm run build
+cd ..
 
-**Launch the web UI:**
-```bash
-cd webui && npm install && npm run build && cd ..
 python -m uvicorn nn.webapp:app --port 8000
 ```
-Drop `.pt` checkpoint files in `nn_artifacts/checkpoints/` and they appear in the UI automatically.
 
-**Run the Spendee bridge:**
-```bash
-python -m spendee.cli \
-  --checkpoint nn_artifacts/checkpoints/champion.pt \
-  --user-data-dir ~/.config/splendor-chromium \
-  --search-type ismcts --num-simulations 5000 \
-  --live
-```
+Place compatible `.pt` checkpoints inside `nn_artifacts/checkpoints/`.
 
----
+# Tech Stack
 
-## Results
-![win rate graph](https://github.com/user-attachments/assets/16a287cc-9865-4fc6-85da-9a03589a8de2)
-| Opponent | Performance |
-|----------|----------|
-| Random | Win rate 100% |
-| Greedy heuristic | Win rate 100% |
-| Spendee leaderboard | **2068 rating — attaining the highest title of Grandmaster** |
+| Component | Technology |
+|-----------|------------|
+| Engine | C++17 + pybind11|
+| Search | MCTS |
+| Neural Network | PyTorch |
+| Backend | FastAPI |
+| Frontend | React + TypeScript + Vite |
+| Build | CMake |
+| Live Play | Playwright |
+
+
+# License
+
+MIT License
