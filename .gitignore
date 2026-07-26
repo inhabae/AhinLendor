@@ -2,7 +2,6 @@
 nn/__*
 *.jsonl
 *.pt
-*.png
 *.json
 *.txt
 *.prof
