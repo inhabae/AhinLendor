@@ -108,38 +108,6 @@ After introducing Bootstrap MCTS, the engine correctly identified reserving the 
   <em>With bootstrap search (20K each), AhinLendor now correctly evaluates that reserving the tier-1 card is the best move.</em>
 </p>
 
-
-
-# Getting Started
-
-Install dependencies
-
-```bash
-pip install -r requirements-nn.txt
-pip install -r requirements-webui.txt
-pip install -r requirements-spendee.txt
-```
-
-Build the native engine
-
-```bash
-cmake -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
-cmake --build build --target splendor_native
-```
-
-Run the web application
-
-```bash
-cd webui
-npm install
-npm run build
-cd ..
-
-python -m uvicorn nn.webapp:app --port 8000
-```
-
-Place compatible `.pt` checkpoints inside `nn_artifacts/checkpoints/`.
-
 # Tech Stack
 
 | Component | Technology |
